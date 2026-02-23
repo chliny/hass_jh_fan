@@ -1,0 +1,24 @@
+{
+  "config": {
+    "abort": {
+      "no_devices_found": "未找到 JH 风扇设备",
+      "single_instance_allowed": "已配置"
+    },
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "data": {
+          "address": "设备",
+          "name": "名称"
+        },
+        "description": "选择您的 JH 风扇设备"
+      },
+      "bluetooth_confirm": {
+        "description": "您要设置 {name} 吗？",
+        "data": {
+          "name": "名称"
+        }
+      }
+    }
+  }
+}
