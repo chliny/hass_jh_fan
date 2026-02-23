@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 import voluptuous as vol
 from propcache.api import cached_property
@@ -87,9 +87,21 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
             return 0
         return int((speed / SPEED_COUNT) * 100)
 
-    @property
+    @cached_property
     def oscillating(self) -> bool | None:
-        return self.coordinator.data.get("oscillating", False)
+        """返回左右摇头状态。"""
+        return self.coordinator.data.get("oscillating_lr", False)
+
+    @cached_property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """返回额外状态属性。"""
+        return {
+            "oscillating_ud": self.coordinator.data.get("oscillating_ud", False),
+            "anion": self.coordinator.data.get("anion", False),
+            "mode": self.coordinator.data.get("mode", 0),
+            "speed_raw": self.coordinator.data.get("speed", 0),
+        }
 
     async def async_turn_on(
         self,

@@ -15,9 +15,11 @@ from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.const import CONF_ADDRESS
 
 from .const import (
+    CMD_STATUS_REPORT,
     COMMAND_DELAY,
     CONNECTION_TIMEOUT,
     DEFAULT_ATTEMPTS,
+    DP_GET_ALL,
     FRAME_HEAD,
     FRAME_TAIL,
     NOTIFY_CHAR_UUID,
@@ -40,6 +42,8 @@ class JHFanBLE:
         self._seq = 1
         self._callbacks: list[Callable[[bytes], None]] = []
         self._connected = False
+        self._status_event = asyncio.Event()
+        self._last_status: dict[str, Any] | None = None
 
     @property
     def connected(self) -> bool:
@@ -54,14 +58,71 @@ class JHFanBLE:
         seq = self._next_seq()
         payload = [3, seq, dp_id, value]
         cs = checksum(payload)
-        frame=[FRAME_HEAD, *payload, cs, FRAME_TAIL]
+        frame = [FRAME_HEAD, *payload, cs, FRAME_TAIL]
         _LOGGER.debug("Built frame: %s", frame)
         return bytes(frame)
 
-    async def _notification_handler(self, _sender: BleakGATTCharacteristic, data: bytearray) -> None:
+    def _parse_status_report(self, data: bytes) -> dict[str, Any] | None:
+        """解析设备状态上报数据。
+
+        数据帧格式: [0xAA, 长度, 序列号, 0x53, 状态数据..., 校验和, 0x55]
+        状态数据按DP点顺序排列
+        """
+        if len(data) < 6:
+            return None
+
+        if data[0] != FRAME_HEAD or data[-1] != FRAME_TAIL:
+            return None
+
+        if data[3] != CMD_STATUS_REPORT:
+            return None
+
+        # 状态数据从第4字节开始，到校验和之前
+        status_data = data[4 : data[1] + 2]
+
+        # DP点顺序映射 (根据微信小程序 fanKey2Dp)
+        # 位置 0: DP_SWITCH (1) - 开关
+        # 位置 1: DP_LEVEL (2) - 风速
+        # 位置 2: DP_TIMING_OFF (3) - 定时关机
+        # 位置 3: DP_LR_OSCILLATE (4) - 左右摇头
+        # 位置 4: DP_UD_OSCILLATE (5) - 上下摇头
+        # 位置 5: DP_ANION (6) - 负离子
+        # 位置 6: DP_MODE (7) - 模式
+        # ...
+
+        status: dict[str, Any] = {}
+
+        if len(status_data) > 0:
+            status["power"] = status_data[0] == 1
+        if len(status_data) > 1:
+            status["speed"] = status_data[1]
+        if len(status_data) > 3:
+            status["oscillating_lr"] = status_data[3] == 1
+        if len(status_data) > 4:
+            status["oscillating_ud"] = status_data[4] == 1
+        if len(status_data) > 5:
+            status["anion"] = status_data[5] == 1
+        if len(status_data) > 6:
+            status["mode"] = status_data[6]
+
+        _LOGGER.debug("Parsed status: %s", status)
+        return status
+
+    async def _notification_handler(
+        self, _sender: BleakGATTCharacteristic, data: bytearray
+    ) -> None:
         _LOGGER.debug("Received notification: %s", data.hex())
+        data_bytes = bytes(data)
+
+        # 尝试解析状态上报
+        status = self._parse_status_report(data_bytes)
+        if status:
+            self._last_status = status
+            self._status_event.set()
+
+        # 回调通知
         for callback in self._callbacks:
-            callback(bytes(data))
+            callback(data_bytes)
 
     def register_callback(self, callback: Callable[[bytes], None]) -> None:
         self._callbacks.append(callback)
@@ -122,6 +183,7 @@ class JHFanBLE:
                             await asyncio.sleep(1)
                             continue
 
+                    assert self._client is not None
                     await self._client.write_gatt_char(
                         WRITE_CHAR_UUID, frame, response=False
                     )
@@ -135,6 +197,27 @@ class JHFanBLE:
                 await asyncio.sleep(1)
 
         return False
+
+    async def get_status(self, timeout: float = 5.0) -> dict[str, Any] | None:
+        """获取设备所有状态。
+
+        发送 DP_GET_ALL 命令，等待设备返回状态。
+        """
+        self._status_event.clear()
+        self._last_status = None
+
+        # 发送获取状态命令
+        if not await self.send_command(DP_GET_ALL, 0):
+            _LOGGER.warning("Failed to send get_status command")
+            return None
+
+        # 等待状态上报
+        try:
+            await asyncio.wait_for(self._status_event.wait(), timeout=timeout)
+            return self._last_status
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Timeout waiting for status response")
+            return None
 
     async def turn_on(self) -> bool:
         return await self.send_command(1, 1)
