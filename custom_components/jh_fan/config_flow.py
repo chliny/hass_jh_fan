@@ -91,15 +91,14 @@ class JHFanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         discovered: BluetoothServiceInfoBleak
         for discovered in async_discovered_service_info(self.hass):
-            if SERVICE_UUID not in [
-                s.lower() for s in discovered.service_uuids
-            ] and "FFB0" not in [s.split("-")[0] for s in discovered.service_uuids]:
+            if SERVICE_UUID not in [s.upper() for s in discovered.service_uuids]:
                 continue
 
             address = discovered.address
             if address in current_addresses or address in self._discovered_devices:
                 continue
 
+            _LOGGER.debug("Discovered JH Fan device: %s", discovered)
             self._discovered_devices[address] = discovered
 
         if not self._discovered_devices:

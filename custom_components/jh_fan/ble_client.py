@@ -46,7 +46,7 @@ class JHFanBLE:
         return self._connected
 
     def _next_seq(self) -> int:
-        seq = self._seq
+        seq: int = self._seq
         self._seq = 255 if seq >= 255 else seq + 1
         return seq
 
@@ -54,7 +54,9 @@ class JHFanBLE:
         seq = self._next_seq()
         payload = [3, seq, dp_id, value]
         cs = checksum(payload)
-        return bytes([FRAME_HEAD, *payload, cs, FRAME_TAIL])
+        frame=[FRAME_HEAD, *payload, cs, FRAME_TAIL]
+        _LOGGER.debug("Built frame: %s", frame)
+        return bytes(frame)
 
     async def _notification_handler(self, _sender: BleakGATTCharacteristic, data: bytearray) -> None:
         _LOGGER.debug("Received notification: %s", data.hex())
