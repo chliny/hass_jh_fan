@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable
+from typing import Any
 
 from bleak import BleakClient
 from bleak.exc import BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 
-from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
-from homeassistant.const import CONF_ADDRESS
+from homeassistant.components.bluetooth import (
+    async_ble_device_from_address,
+)
+from homeassistant.core import HomeAssistant
 
 from .const import (
     CMD_STATUS_REPORT,
@@ -20,14 +22,23 @@ from .const import (
     CONNECTION_TIMEOUT,
     DEFAULT_ATTEMPTS,
     DP_GET_ALL,
+    DP_LEVEL,
+    DP_LR_OSCILLATE,
+    DP_SWITCH,
+    DP_UD_OSCILLATE,
+    DP_MODE,
+    DP_ANION,
+    DP_NATURAL_WIND,
+    DP_CHILD_LOCK,
     FRAME_HEAD,
     FRAME_TAIL,
     NOTIFY_CHAR_UUID,
-    SERVICE_UUID,
     WRITE_CHAR_UUID,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+RECONNECT_DELAY = 2.0
 
 
 def checksum(data: list[int]) -> int:
@@ -35,12 +46,12 @@ def checksum(data: list[int]) -> int:
 
 
 class JHFanBLE:
-    def __init__(self, address: str) -> None:
+    def __init__(self, address: str, hass: HomeAssistant | None = None) -> None:
         self._address = address
+        self._hass = hass
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._seq = 1
-        self._callbacks: list[Callable[[bytes], None]] = []
         self._connected = False
         self._status_event = asyncio.Event()
         self._last_status: dict[str, Any] | None = None
@@ -59,7 +70,6 @@ class JHFanBLE:
         payload = [3, seq, dp_id, value]
         cs = checksum(payload)
         frame = [FRAME_HEAD, *payload, cs, FRAME_TAIL]
-        _LOGGER.debug("Built frame: %s", frame)
         return bytes(frame)
 
     def _parse_status_report(self, data: bytes) -> dict[str, Any] | None:
@@ -74,12 +84,6 @@ class JHFanBLE:
         if data[0] != FRAME_HEAD or data[-1] != FRAME_TAIL:
             return None
 
-        if data[3] != CMD_STATUS_REPORT:
-            return None
-
-        # 状态数据从第4字节开始，到校验和之前
-        status_data = data[4 : data[1] + 2]
-
         # DP点顺序映射 (根据微信小程序 fanKey2Dp)
         # 位置 0: DP_SWITCH (1) - 开关
         # 位置 1: DP_LEVEL (2) - 风速
@@ -92,18 +96,38 @@ class JHFanBLE:
 
         status: dict[str, Any] = {}
 
-        if len(status_data) > 0:
-            status["power"] = status_data[0] == 1
-        if len(status_data) > 1:
-            status["speed"] = status_data[1]
-        if len(status_data) > 3:
-            status["oscillating_lr"] = status_data[3] == 1
-        if len(status_data) > 4:
-            status["oscillating_ud"] = status_data[4] == 1
-        if len(status_data) > 5:
-            status["anion"] = status_data[5] == 1
-        if len(status_data) > 6:
-            status["mode"] = status_data[6]
+        # 状态上报 (0x53)
+        if data[3] == CMD_STATUS_REPORT:
+            # 状态数据从第4字节开始，到校验和之前
+            status_data = data[4: data[1] + 2]
+            if len(status_data) >= DP_SWITCH:
+                status["power"] = status_data[DP_SWITCH - 1] == 1
+            if len(status_data) >= DP_LEVEL:
+                status["speed"] = status_data[DP_LEVEL - 1]
+            if len(status_data) >= DP_LR_OSCILLATE:
+                status["oscillating_lr"] = status_data[DP_LR_OSCILLATE - 1] == 1
+            if len(status_data) >= DP_UD_OSCILLATE:
+                status["oscillating_ud"] = status_data[DP_UD_OSCILLATE - 1] == 1
+            if len(status_data) >= DP_ANION:
+                status["anion"] = status_data[DP_ANION - 1] == 1
+            if len(status_data) >= DP_MODE:
+                status["mode"] = status_data[DP_MODE - 1]
+        else:
+            # 单DP点上报
+            dp_id = data[3]
+            value = data[4]
+            if dp_id == DP_SWITCH:
+                status["power"] = value == 1
+            elif dp_id == DP_LEVEL:
+                status["speed"] = value
+            elif dp_id == DP_LR_OSCILLATE:
+                status["oscillating_lr"] = value == 1
+            elif dp_id == DP_UD_OSCILLATE:
+                status["oscillating_ud"] = value == 1
+            elif dp_id == DP_MODE:
+                status["mode"] = value
+            elif dp_id == DP_ANION:
+                status["anion"] = value == 1
 
         _LOGGER.debug("Parsed status: %s", status)
         return status
@@ -111,7 +135,6 @@ class JHFanBLE:
     async def _notification_handler(
         self, _sender: BleakGATTCharacteristic, data: bytearray
     ) -> None:
-        _LOGGER.debug("Received notification: %s", data.hex())
         data_bytes = bytes(data)
 
         # 尝试解析状态上报
@@ -120,30 +143,27 @@ class JHFanBLE:
             self._last_status = status
             self._status_event.set()
 
-        # 回调通知
-        for callback in self._callbacks:
-            callback(data_bytes)
+    async def _get_ble_device(self) -> BLEDevice | None:
+        """获取 BLE 设备对象。"""
+        if self._hass:
+            return async_ble_device_from_address(self._hass, self._address)
+        return None
 
-    def register_callback(self, callback: Callable[[bytes], None]) -> None:
-        self._callbacks.append(callback)
-
-    def unregister_callback(self, callback: Callable[[bytes], None]) -> None:
-        if callback in self._callbacks:
-            self._callbacks.remove(callback)
-
-    async def connect(self, ble_device: BLEDevice | None = None) -> bool:
+    async def connect(self) -> bool:
         async with self._lock:
-            if self._connected and self._client and self._client.is_connected:
-                return True
-
             try:
-                if ble_device:
-                    self._client = BleakClient(ble_device, timeout=CONNECTION_TIMEOUT)
-                else:
-                    self._client = BleakClient(
-                        self._address, timeout=CONNECTION_TIMEOUT
-                    )
+                if not self._client:
+                    # 尝试获取最新的 BLE 设备
+                    ble_device = await self._get_ble_device()
 
+                    if ble_device:
+                        _LOGGER.debug("Found BLE device: %s", ble_device)
+                        self._client = BleakClient(ble_device, timeout=CONNECTION_TIMEOUT)
+                    else:
+                        _LOGGER.debug("BLE device not found, creating client with address: %s", self._address)
+                        self._client = BleakClient(
+                            self._address, timeout=CONNECTION_TIMEOUT
+                        )
                 await self._client.connect()
                 await self._client.start_notify(
                     NOTIFY_CHAR_UUID, self._notification_handler
@@ -157,6 +177,7 @@ class JHFanBLE:
                 return False
 
     async def disconnect(self) -> None:
+        """断开连接并停止重连任务。"""
         async with self._lock:
             if self._client and self._client.is_connected:
                 try:
@@ -166,6 +187,18 @@ class JHFanBLE:
                     _LOGGER.warning("Error disconnecting: %s", err)
             self._connected = False
             self._client = None
+
+    async def _ensure_connected(self) -> bool:
+        """确保连接状态，必要时重连。"""
+        if self._client and self._client.is_connected and self._connected:
+            _LOGGER.debug("Connection is healthy")
+            return True
+
+        _LOGGER.warning("Connection lost, attempting to reconnect...")
+        self._connected = False
+
+        # 尝试重新连接
+        return await self.connect()
 
     async def send_command(
         self, dp_id: int, value: int, attempts: int = DEFAULT_ATTEMPTS
@@ -177,24 +210,30 @@ class JHFanBLE:
 
         for attempt in range(attempts):
             try:
-                async with self._lock:
-                    if not self._client or not self._client.is_connected:
-                        if not await self.connect():
-                            await asyncio.sleep(1)
-                            continue
-
-                    assert self._client is not None
-                    await self._client.write_gatt_char(
-                        WRITE_CHAR_UUID, frame, response=False
+                # 检查连接状态，必要时重连
+                if not await self._ensure_connected():
+                    _LOGGER.warning(
+                        "Connection failed (attempt %d/%d)", attempt + 1, attempts
                     )
-                    await asyncio.sleep(COMMAND_DELAY)
-                    return True
+                    await asyncio.sleep(RECONNECT_DELAY)
+                    continue
+                assert self._client is not None
+                await self._client.write_gatt_char(
+                    WRITE_CHAR_UUID, frame, response=False
+                )
+                await asyncio.sleep(COMMAND_DELAY)
+                return True
             except BleakError as err:
                 _LOGGER.warning(
                     "Command failed (attempt %d/%d): %s", attempt + 1, attempts, err
                 )
+                # 标记断开并触发重连
                 self._connected = False
-                await asyncio.sleep(1)
+            except Exception as err:
+                _LOGGER.error(
+                    "Unexpected error (attempt %d/%d): %s", attempt + 1, attempts, err
+                )
+                self._connected = False
 
         return False
 
@@ -204,7 +243,6 @@ class JHFanBLE:
         发送 DP_GET_ALL 命令，等待设备返回状态。
         """
         self._status_event.clear()
-        self._last_status = None
 
         # 发送获取状态命令
         if not await self.send_command(DP_GET_ALL, 0):
@@ -220,22 +258,26 @@ class JHFanBLE:
             return None
 
     async def turn_on(self) -> bool:
-        return await self.send_command(1, 1)
+        return await self.send_command(DP_SWITCH, 1)
 
     async def turn_off(self) -> bool:
-        return await self.send_command(1, 0)
+        return await self.send_command(DP_SWITCH, 0)
 
     async def set_speed(self, speed: int) -> bool:
-        return await self.send_command(2, speed)
+        return await self.send_command(DP_LEVEL, speed)
 
     async def set_oscillate_lr(self, oscillate: bool) -> bool:
-        return await self.send_command(4, 1 if oscillate else 0)
+        return await self.send_command(DP_LR_OSCILLATE, 1 if oscillate else 0)
 
     async def set_oscillate_ud(self, oscillate: bool) -> bool:
-        return await self.send_command(5, 1 if oscillate else 0)
+        return await self.send_command(DP_UD_OSCILLATE, 1 if oscillate else 0)
+
+    async def set_mode(self, mode: int) -> bool:
+        """设置风扇模式。"""
+        return await self.send_command(DP_MODE, mode)
 
     async def set_natural_wind(self, enable: bool) -> bool:
-        return await self.send_command(27, 1 if enable else 0)
+        return await self.send_command(DP_NATURAL_WIND, 1 if enable else 0)
 
     async def set_child_lock(self, enable: bool) -> bool:
-        return await self.send_command(26, 1 if enable else 0)
+        return await self.send_command(DP_CHILD_LOCK, 1 if enable else 0)

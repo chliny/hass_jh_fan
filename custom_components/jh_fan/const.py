@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from typing import Final
 
 DOMAIN: Final = "jh_fan"
@@ -40,3 +41,5 @@ DEFAULT_NAME = "JH Fan"
 DEFAULT_ATTEMPTS = 3
 CONNECTION_TIMEOUT = 10.0
 COMMAND_DELAY = 0.1
+
+UpdateInterval = datetime.timedelta(seconds=30)
