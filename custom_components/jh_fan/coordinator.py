@@ -33,8 +33,8 @@ class JHFanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "speed": 0,
             "oscillating_lr": False,
             "oscillating_ud": False,
-            "anion": False,
-            "mode": 0,
+            "timing_power": 0,
+            "voice_announce": False,
         }
 
         self._unsub_bluetooth: Any = None
@@ -48,13 +48,7 @@ class JHFanCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if change == BluetoothChange.ADVERTISEMENT:
             pass
 
-    def _parse_notification(self, data: dict[str, Any] | None) -> None:
-        if data:
-            self._data.update(data)
-        self.async_set_updated_data(self._data)
-
     async def _async_update_data(self) -> dict[str, Any]:
-        # self.ble_client.register_callback(self._parse_notification)
         data = await self.ble_client.get_status()
         if data:
             self._data.update(data)

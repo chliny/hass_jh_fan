@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, override
 
 import voluptuous as vol
+import logging
 from propcache.api import cached_property
 
 from homeassistant.components.fan import (
@@ -31,6 +32,8 @@ from .const import (
     SPEED_COUNT,
 )
 from .coordinator import JHFanCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -78,29 +81,30 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
     def is_on(self) -> bool | None:
         return self.coordinator.data.get("power", False)
 
-    @cached_property
+    @property
     def percentage(self) -> int | None:
         if not self.is_on:
             return 0
         speed = self.coordinator.data.get("speed", 0)
         if speed <= 0:
             return 0
-        return int((speed / SPEED_COUNT) * 100)
+        percentage = int((speed / SPEED_COUNT) * 100)
+        return percentage
 
-    @cached_property
+    @property
     def oscillating(self) -> bool | None:
         """返回左右摇头状态。"""
         return self.coordinator.data.get("oscillating_lr", False)
 
-    @cached_property
+    @property
     @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """返回额外状态属性。"""
         return {
             "oscillating_ud": self.coordinator.data.get("oscillating_ud", False),
-            "anion": self.coordinator.data.get("anion", False),
-            "mode": self.coordinator.data.get("mode", 0),
             "speed_raw": self.coordinator.data.get("speed", 0),
+            "timing_power": self.coordinator.data.get("timing_power", 0),
+            "voice_announce": self.coordinator.data.get("voice_announce", False),
         }
 
     async def async_turn_on(

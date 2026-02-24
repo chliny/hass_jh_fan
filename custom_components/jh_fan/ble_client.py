@@ -26,10 +26,6 @@ from .const import (
     DP_LR_OSCILLATE,
     DP_SWITCH,
     DP_UD_OSCILLATE,
-    DP_MODE,
-    DP_ANION,
-    DP_NATURAL_WIND,
-    DP_CHILD_LOCK,
     FRAME_HEAD,
     FRAME_TAIL,
     NOTIFY_CHAR_UUID,
@@ -76,7 +72,7 @@ class JHFanBLE:
         """解析设备状态上报数据。
 
         数据帧格式: [0xAA, 长度, 序列号, 0x53, 状态数据..., 校验和, 0x55]
-        状态数据按DP点顺序排列
+        状态数据按DP点顺序排列，索引 = DP点 - 1
         """
         if len(data) < 6:
             return None
@@ -84,51 +80,31 @@ class JHFanBLE:
         if data[0] != FRAME_HEAD or data[-1] != FRAME_TAIL:
             return None
 
-        # DP点顺序映射 (根据微信小程序 fanKey2Dp)
-        # 位置 0: DP_SWITCH (1) - 开关
-        # 位置 1: DP_LEVEL (2) - 风速
-        # 位置 2: DP_TIMING_OFF (3) - 定时关机
-        # 位置 3: DP_LR_OSCILLATE (4) - 左右摇头
-        # 位置 4: DP_UD_OSCILLATE (5) - 上下摇头
-        # 位置 5: DP_ANION (6) - 负离子
-        # 位置 6: DP_MODE (7) - 模式
-        # ...
+        # 状态上报 (0x53)
+        if data[3] != CMD_STATUS_REPORT:
+            return None
 
         status: dict[str, Any] = {}
+        # JavaScript slice: data.slice(4, length + 2) 是左闭右开
+        # Python 切片需要用 data[4:length + 3] 才能获取相同范围
+        status_data = data[4: data[1] + 3]
+        _LOGGER.debug("Raw status data: %s", list(status_data))
 
-        # 状态上报 (0x53)
-        if data[3] == CMD_STATUS_REPORT:
-            # 状态数据从第4字节开始，到校验和之前
-            status_data = data[4: data[1] + 2]
-            if len(status_data) >= DP_SWITCH:
-                status["power"] = status_data[DP_SWITCH - 1] == 1
-            if len(status_data) >= DP_LEVEL:
-                status["speed"] = status_data[DP_LEVEL - 1]
-            if len(status_data) >= DP_LR_OSCILLATE:
-                status["oscillating_lr"] = status_data[DP_LR_OSCILLATE - 1] == 1
-            if len(status_data) >= DP_UD_OSCILLATE:
-                status["oscillating_ud"] = status_data[DP_UD_OSCILLATE - 1] == 1
-            if len(status_data) >= DP_ANION:
-                status["anion"] = status_data[DP_ANION - 1] == 1
-            if len(status_data) >= DP_MODE:
-                status["mode"] = status_data[DP_MODE - 1]
-        else:
-            # 单DP点上报
-            dp_id = data[3]
-            value = data[4]
-            if dp_id == DP_SWITCH:
-                status["power"] = value == 1
-            elif dp_id == DP_LEVEL:
-                status["speed"] = value
-            elif dp_id == DP_LR_OSCILLATE:
-                status["oscillating_lr"] = value == 1
-            elif dp_id == DP_UD_OSCILLATE:
-                status["oscillating_ud"] = value == 1
-            elif dp_id == DP_MODE:
-                status["mode"] = value
-            elif dp_id == DP_ANION:
-                status["anion"] = value == 1
-
+        # 风扇 dp2key 映射 (根据微信小程序):
+        # ["switch", "angleAutoLROnOff", undefined, "level_1", "timingPowerOff1", undefined, "angleAutoUDOnOff", ...]
+        # 索引 0: switch, 索引 1: LR oscillate, 索引 3: level_1 (风速), 索引 4: timing, 索引 6: UD oscillate
+        if len(status_data) >= 1:
+            status["power"] = status_data[0] == 1
+        if len(status_data) >= 2:
+            status["oscillating_lr"] = status_data[1] == 1
+        if len(status_data) >= 4:
+            status["speed"] = status_data[3]
+        if len(status_data) >= 5:
+            status["timing_power"] = status_data[4]
+        if len(status_data) >= 7:
+            status["oscillating_ud"] = status_data[6] == 1
+        if len(status_data) >= 19:
+            status["voice_announce"] = status_data[9] == 1
         _LOGGER.debug("Parsed status: %s", status)
         return status
 
@@ -271,13 +247,3 @@ class JHFanBLE:
 
     async def set_oscillate_ud(self, oscillate: bool) -> bool:
         return await self.send_command(DP_UD_OSCILLATE, 1 if oscillate else 0)
-
-    async def set_mode(self, mode: int) -> bool:
-        """设置风扇模式。"""
-        return await self.send_command(DP_MODE, mode)
-
-    async def set_natural_wind(self, enable: bool) -> bool:
-        return await self.send_command(DP_NATURAL_WIND, 1 if enable else 0)
-
-    async def set_child_lock(self, enable: bool) -> bool:
-        return await self.send_command(DP_CHILD_LOCK, 1 if enable else 0)
