@@ -21,7 +21,7 @@ FRAME_TAIL = 0x55
 DP_GET_ALL = 0  # 获取所有状态
 DP_SWITCH = 1  # 开关
 DP_LEVEL = 2  # 风速档位
-DP_TIMING_OFF = 3  # 定时关机
+DP_TIMING_OFF = 3  # 定时关机 (小时数)
 DP_LR_OSCILLATE = 4  # 左右摇头
 DP_UD_OSCILLATE = 5  # 上下摇头
 DP_ANION = 6  # 负离子
@@ -43,3 +43,6 @@ CONNECTION_TIMEOUT = 10.0
 COMMAND_DELAY = 0.1
 
 UpdateInterval = datetime.timedelta(seconds=30)
+
+# 定时关机选项 (小时)
+TIMING_OPTIONS = ["关闭", "1小时", "2小时", "3小时", "4小时", "5小时", "6小时", "7小时", "8小时", "9小时", "10小时", "11小时", "12小时"]

@@ -55,9 +55,10 @@ class JHFanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Confirm discovery."""
         if user_input is not None:
+            name = user_input.get(CONF_NAME, "JH Fan")
             return self.async_create_entry(
-                title=user_input.get(CONF_NAME, "JH Fan"),
-                data={CONF_ADDRESS: self._address},
+                title=name,
+                data={CONF_ADDRESS: self._address, CONF_NAME: name},
             )
 
         # self._address is guaranteed to be set by async_step_bluetooth
@@ -82,9 +83,10 @@ class JHFanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             self._abort_if_unique_id_configured()
 
+            name = user_input.get(CONF_NAME, "JH Fan")
             return self.async_create_entry(
-                title=user_input.get(CONF_NAME, "JH Fan"),
-                data={CONF_ADDRESS: self._address},
+                title=name,
+                data={CONF_ADDRESS: self._address, CONF_NAME: name},
             )
 
         current_addresses = set(self._async_current_ids(include_ignore=False))

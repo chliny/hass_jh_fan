@@ -26,6 +26,8 @@ from .const import (
     DP_LR_OSCILLATE,
     DP_SWITCH,
     DP_UD_OSCILLATE,
+    DP_VOICE_ANNOUNCE,
+    DP_TIMING_OFF,
     FRAME_HEAD,
     FRAME_TAIL,
     NOTIFY_CHAR_UUID,
@@ -88,8 +90,6 @@ class JHFanBLE:
         # JavaScript slice: data.slice(4, length + 2) 是左闭右开
         # Python 切片需要用 data[4:length + 3] 才能获取相同范围
         status_data = data[4: data[1] + 3]
-        _LOGGER.debug("Raw status data: %s", list(status_data))
-
         # 风扇 dp2key 映射 (根据微信小程序):
         # ["switch", "angleAutoLROnOff", undefined, "level_1", "timingPowerOff1", undefined, "angleAutoUDOnOff", ...]
         # 索引 0: switch, 索引 1: LR oscillate, 索引 3: level_1 (风速), 索引 4: timing, 索引 6: UD oscillate
@@ -247,3 +247,11 @@ class JHFanBLE:
 
     async def set_oscillate_ud(self, oscillate: bool) -> bool:
         return await self.send_command(DP_UD_OSCILLATE, 1 if oscillate else 0)
+
+    async def set_voice_announce(self, enable: bool) -> bool:
+        """设置语音播报开关。"""
+        return await self.send_command(DP_VOICE_ANNOUNCE, 1 if enable else 0)
+
+    async def set_timing_off(self, hours: int) -> bool:
+        """设置定时关机时间（小时）。"""
+        return await self.send_command(DP_TIMING_OFF, hours)

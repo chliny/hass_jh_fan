@@ -14,20 +14,13 @@ from homeassistant.components.fan import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .ble_client import JHFanBLE
 from .const import (
     DEFAULT_NAME,
-    DP_CHILD_LOCK,
-    DP_LEVEL,
-    DP_LR_OSCILLATE,
-    DP_NATURAL_WIND,
-    DP_SWITCH,
-    DP_UD_OSCILLATE,
     DOMAIN,
     SPEED_COUNT,
 )
@@ -44,8 +37,7 @@ async def async_setup_entry(
     address = entry.data[CONF_ADDRESS]
     name = entry.data.get(CONF_NAME, DEFAULT_NAME)
 
-    coordinator = JHFanCoordinator(hass, address)
-    await coordinator.async_config_entry_first_refresh()
+    coordinator: JHFanCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     async_add_entities([JHFanEntity(coordinator, address, name)])
 
@@ -56,7 +48,6 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
     _attr_speed_count = SPEED_COUNT
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED
-        | FanEntityFeature.OSCILLATE
         | FanEntityFeature.TURN_ON
         | FanEntityFeature.TURN_OFF
     )
@@ -92,19 +83,11 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
         return percentage
 
     @property
-    def oscillating(self) -> bool | None:
-        """返回左右摇头状态。"""
-        return self.coordinator.data.get("oscillating_lr", False)
-
-    @property
     @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """返回额外状态属性。"""
         return {
-            "oscillating_ud": self.coordinator.data.get("oscillating_ud", False),
             "speed_raw": self.coordinator.data.get("speed", 0),
-            "timing_power": self.coordinator.data.get("timing_power", 0),
-            "voice_announce": self.coordinator.data.get("voice_announce", False),
         }
 
     async def async_turn_on(
@@ -135,8 +118,4 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
         speed = int((percentage / 100) * SPEED_COUNT)
         speed = max(1, min(speed, SPEED_COUNT))
         await self.coordinator.ble_client.set_speed(speed)
-        await self.coordinator.async_request_refresh()
-
-    async def async_oscillate(self, oscillating: bool) -> None:
-        await self.coordinator.ble_client.set_oscillate_lr(oscillating)
         await self.coordinator.async_request_refresh()
