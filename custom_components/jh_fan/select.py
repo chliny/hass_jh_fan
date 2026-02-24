@@ -49,16 +49,18 @@ class JHFanSelectTimingOff(CoordinatorEntity[JHFanCoordinator], SelectEntity):
     @property
     def current_option(self) -> str | None:
         hours = self.coordinator.data.get(self._attr_name, 0)
-        if hours == 0 or hours >= len(TIMING_OPTIONS):
-            return "关闭"
+        if hours >= len(TIMING_OPTIONS):
+            return "未知"
         return TIMING_OPTIONS[hours]
 
-    async def async_select_option(self, option: str) -> bool:
+    async def async_select_option(self, option: str) -> None:
         if option == "关闭":
             hours = 0
         else:
             try:
                 hours = TIMING_OPTIONS.index(option)
             except ValueError:
-                return False
-        return await self.coordinator.ble_client.set_timing_off(hours)
+                return
+        await self.coordinator.ble_client.set_timing_off(hours)
+        # 刷新状态
+        await self.coordinator.async_request_refresh()

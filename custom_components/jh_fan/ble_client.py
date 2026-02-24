@@ -103,7 +103,7 @@ class JHFanBLE:
             status["timing_power"] = status_data[4]
         if len(status_data) >= 7:
             status["oscillating_ud"] = status_data[6] == 1
-        if len(status_data) >= 19:
+        if len(status_data) >= 10:
             status["voice_announce"] = status_data[9] == 1
         _LOGGER.debug("Parsed status: %s", status)
         return status
