@@ -35,10 +35,10 @@ class JHFanSelectTimingOff(CoordinatorEntity[JHFanCoordinator], SelectEntity):
     def __init__(self, coordinator: JHFanCoordinator, address: str, name: str) -> None:
         super().__init__(coordinator)
         self._attr_has_entity_name = True
-        self._attr_name = "timing_power"
-        self._attr_unique_id = f"{format_mac(address)}_select_timing_off"
+        self._attr_unique_id = f"{format_mac(address)}_select_timing_power"
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_options = TIMING_OPTIONS
+        self._attr_translation_key = self._attr_name
         self._attr_device_info = {
             "identifiers": {(DOMAIN, address)},
             "name": name,

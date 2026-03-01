@@ -1,24 +1,47 @@
 {
-  "config": {
-    "abort": {
-      "no_devices_found": "未找到 JH 风扇设备",
-      "single_instance_allowed": "已配置"
-    },
-    "flow_title": "{name}",
-    "step": {
-      "user": {
-        "data": {
-          "address": "设备",
-          "name": "名称"
+    "config": {
+        "abort": {
+            "no_devices_found": "未找到 JH 风扇设备",
+            "single_instance_allowed": "已配置"
         },
-        "description": "选择您的 JH 风扇设备"
-      },
-      "bluetooth_confirm": {
-        "description": "您要设置 {name} 吗？",
-        "data": {
-          "name": "名称"
+        "flow_title": "{name}",
+        "step": {
+            "user": {
+                "data": {
+                    "address": "设备",
+                    "name": "名称"
+                },
+                "description": "选择您的 JH 风扇设备"
+            },
+            "bluetooth_confirm": {
+                "description": "您要设置 {name} 吗？",
+                "data": {
+                    "name": "名称"
+                }
+            }
         }
-      }
+    },
+    "entity": {
+        "switch": {
+            "oscillating_lr": {
+                "name": "左右摇头"
+            },
+            "oscillating_ud": {
+                "name": "上下摇头"
+            },
+            "voice_announce": {
+                "name": "语音播报"
+            }
+        },
+        "select": {
+            "timing_power": {
+                "name": "定时关机"
+            }
+        },
+         "fan":{
+            "jh_voice_fan": {
+                "name": "JH智能语音风扇"
+            }
+        }
     }
-  }
 }

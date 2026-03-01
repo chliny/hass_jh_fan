@@ -1,6 +1,7 @@
 """Switch entities for JH Voice Fan."""
 from __future__ import annotations
 
+from propcache.api import cached_property
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, CONF_NAME, EntityCategory
@@ -31,25 +32,41 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class JHFanSwitchLR(CoordinatorEntity[JHFanCoordinator], SwitchEntity):
-    """左右摇头开关"""
+class JHFanSwitch(CoordinatorEntity[JHFanCoordinator], SwitchEntity):
+    """开关基类"""
 
-    def __init__(self, coordinator: JHFanCoordinator, address: str, name: str) -> None:
+    def __init__(self, coordinator: JHFanCoordinator, address: str, name: str, attr_name: str) -> None:
         super().__init__(coordinator)
         self._attr_has_entity_name = True
-        self._attr_name = "oscillating_lr"
-        self._attr_unique_id = f"{format_mac(address)}_switch_lr_oscillate"
+        self.meta_key = attr_name
         self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_translation_key = self.meta_key
         self._attr_device_info = {
             "identifiers": {(DOMAIN, address)},
             "name": name,
             "manufacturer": "JH Voice",
             "model": "Smart Fan",
         }
+        self._attr_unique_id = f"{format_mac(address)}_switch_{self.meta_key}"
 
     @property
     def is_on(self) -> bool:
-        return self.coordinator.data.get(self._attr_name, False)
+        return self.coordinator.data.get(self.meta_key, False)
+
+    async def async_toggle(self, **kwargs) -> None:
+        current = self.is_on
+        if current:
+            await self.async_turn_off()
+        else:
+            await self.async_turn_on()
+
+
+class JHFanSwitchLR(JHFanSwitch):
+    """左右摇头开关"""
+
+    def __init__(self, coordinator: JHFanCoordinator, address: str, name: str) -> None:
+        super().__init__(coordinator, address, name, "oscillating_lr")
+        self._attr_unique_id = f"{format_mac(address)}_switch_lr_oscillate"
 
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_lr(True)
@@ -57,33 +74,13 @@ class JHFanSwitchLR(CoordinatorEntity[JHFanCoordinator], SwitchEntity):
     async def async_turn_off(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_lr(False)
 
-    async def async_toggle(self, **kwargs) -> None:
-        current = self.is_on
-        if current:
-            await self.async_turn_off()
-        else:
-            await self.async_turn_on()
 
-
-class JHFanSwitchUD(CoordinatorEntity[JHFanCoordinator], SwitchEntity):
+class JHFanSwitchUD(JHFanSwitch):
     """上下摇头开关"""
 
     def __init__(self, coordinator: JHFanCoordinator, address: str, name: str) -> None:
-        super().__init__(coordinator)
-        self._attr_has_entity_name = True
-        self._attr_name = "oscillating_ud"
+        super().__init__(coordinator, address, name, "oscillating_ud")
         self._attr_unique_id = f"{format_mac(address)}_switch_ud_oscillate"
-        self._attr_entity_category = EntityCategory.CONFIG
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, address)},
-            "name": name,
-            "manufacturer": "JH Voice",
-            "model": "Smart Fan",
-        }
-
-    @property
-    def is_on(self) -> bool:
-        return self.coordinator.data.get(self._attr_name, False)
 
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_ud(True)
@@ -91,43 +88,16 @@ class JHFanSwitchUD(CoordinatorEntity[JHFanCoordinator], SwitchEntity):
     async def async_turn_off(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_ud(False)
 
-    async def async_toggle(self, **kwargs) -> None:
-        current = self.is_on
-        if current:
-            await self.async_turn_off()
-        else:
-            await self.async_turn_on()
 
-
-class JHFanSwitchVoice(CoordinatorEntity[JHFanCoordinator], SwitchEntity):
+class JHFanSwitchVoice(JHFanSwitch):
     """语音播报开关"""
 
     def __init__(self, coordinator: JHFanCoordinator, address: str, name: str) -> None:
-        super().__init__(coordinator)
-        self._attr_has_entity_name = True
-        self._attr_name = "voice_announce"
+        super().__init__(coordinator, address, name, "voice_announce")
         self._attr_unique_id = f"{format_mac(address)}_switch_voice_announce"
-        self._attr_entity_category = EntityCategory.CONFIG
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, address)},
-            "name": name,
-            "manufacturer": "JH Voice",
-            "model": "Smart Fan",
-        }
-
-    @property
-    def is_on(self) -> bool:
-        return self.coordinator.data.get(self._attr_name, False)
 
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_voice_announce(True)
 
     async def async_turn_off(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_voice_announce(False)
-
-    async def async_toggle(self, **kwargs) -> None:
-        current = self.is_on
-        if current:
-            await self.async_turn_off()
-        else:
-            await self.async_turn_on()

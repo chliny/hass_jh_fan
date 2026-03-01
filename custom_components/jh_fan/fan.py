@@ -60,13 +60,14 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
     ) -> None:
         super().__init__(coordinator)
         self._address = address
-        self._attr_unique_id = format_mac(address)
+        self._attr_unique_id = f"{format_mac(address)}_fan"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, address)},
             "name": name,
             "manufacturer": "JH Voice",
             "model": "Smart Fan",
         }
+        self._attr_translation_key = "jh_voice_fan"
 
     @property
     def is_on(self) -> bool | None:
