@@ -70,9 +70,11 @@ class JHFanSwitchLR(JHFanSwitch):
 
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_lr(True)
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_lr(False)
+        await self.coordinator.async_request_refresh()
 
 
 class JHFanSwitchUD(JHFanSwitch):
@@ -84,9 +86,11 @@ class JHFanSwitchUD(JHFanSwitch):
 
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_ud(True)
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_oscillate_ud(False)
+        await self.coordinator.async_request_refresh()
 
 
 class JHFanSwitchVoice(JHFanSwitch):
@@ -98,6 +102,8 @@ class JHFanSwitchVoice(JHFanSwitch):
 
     async def async_turn_on(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_voice_announce(True)
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs) -> None:
         await self.coordinator.ble_client.set_voice_announce(False)
+        await self.coordinator.async_request_refresh()

@@ -38,9 +38,14 @@
                 "name": "定时关机"
             }
         },
-         "fan":{
+        "fan": {
             "jh_voice_fan": {
-                "name": "JH智能语音风扇"
+                "name": "JH智能语音循环扇",
+                "state_attributes": {
+                    "speed_raw": {
+                        "name": "风速档位"
+                    }
+                }
             }
         }
     }

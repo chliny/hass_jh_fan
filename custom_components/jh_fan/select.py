@@ -38,7 +38,8 @@ class JHFanSelectTimingOff(CoordinatorEntity[JHFanCoordinator], SelectEntity):
         self._attr_unique_id = f"{format_mac(address)}_select_timing_power"
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_options = TIMING_OPTIONS
-        self._attr_translation_key = self._attr_name
+        self.meta_key = "timing_power"
+        self._attr_translation_key = self.meta_key
         self._attr_device_info = {
             "identifiers": {(DOMAIN, address)},
             "name": name,
@@ -48,7 +49,7 @@ class JHFanSelectTimingOff(CoordinatorEntity[JHFanCoordinator], SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        hours = self.coordinator.data.get(self._attr_name, 0)
+        hours = self.coordinator.data.get(self.meta_key, 0)
         if hours >= len(TIMING_OPTIONS):
             return "未知"
         return TIMING_OPTIONS[hours]

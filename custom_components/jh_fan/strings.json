@@ -38,9 +38,14 @@
                 "name": "Power Off Timer"
             }
         },
-        "fan":{
+        "fan": {
             "jh_voice_fan": {
-                "name": "JH Voice Fan"
+                "name": "JH Voice Fan",
+                "state_attributes": {
+                    "speed_raw": {
+                        "name": "Speed Level"
+                    }
+                }
             }
         }
     }

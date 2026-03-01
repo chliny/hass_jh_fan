@@ -43,14 +43,6 @@ async def async_setup_entry(
 
 
 class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
-    _attr_has_entity_name = True
-    _attr_name = None
-    _attr_speed_count = SPEED_COUNT
-    _attr_supported_features = (
-        FanEntityFeature.SET_SPEED
-        | FanEntityFeature.TURN_ON
-        | FanEntityFeature.TURN_OFF
-    )
 
     def __init__(
         self,
@@ -60,6 +52,7 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
     ) -> None:
         super().__init__(coordinator)
         self._address = address
+        self._attr_has_entity_name = True
         self._attr_unique_id = f"{format_mac(address)}_fan"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, address)},
@@ -68,10 +61,21 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
             "model": "Smart Fan",
         }
         self._attr_translation_key = "jh_voice_fan"
+        self._attr_speed_count = SPEED_COUNT
+        self._attr_supported_features = (
+            FanEntityFeature.SET_SPEED
+            | FanEntityFeature.OSCILLATE
+            | FanEntityFeature.TURN_ON
+            | FanEntityFeature.TURN_OFF
+        )
 
     @property
     def is_on(self) -> bool | None:
         return self.coordinator.data.get("power", False)
+
+    @property
+    def oscillating(self) -> bool | None:
+        return self.coordinator.data.get("oscillating_lr", False)
 
     @property
     def percentage(self) -> int | None:
@@ -84,7 +88,6 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
         return percentage
 
     @property
-    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """返回额外状态属性。"""
         return {
@@ -106,6 +109,10 @@ class JHFanEntity(CoordinatorEntity[JHFanCoordinator], FanEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self.coordinator.ble_client.turn_off()
+        await self.coordinator.async_request_refresh()
+
+    async def async_oscillate(self, oscillating: bool) -> None:
+        await self.coordinator.ble_client.set_oscillate_lr(oscillating)
         await self.coordinator.async_request_refresh()
 
     async def async_set_percentage(self, percentage: int) -> None:
