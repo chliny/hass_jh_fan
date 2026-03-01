@@ -31,29 +31,13 @@ Home Assistant 自定义集成，通过蓝牙（BLE）控制 JH 智能语音循�
 
 ## 配置
 
-本集成支持通过 UI 配置，启用集群方法如下：
+本集成支持通过 UI 配置：
 
 1. 确保 Home Assistant 已启用蓝牙集成
 2. 打开风扇电源，以确保设备能被自动发现
 3. 在`homeassistant` 前往 **设置 → 设备与服务 → 添加集成**
 4. 搜索 **JH Voice Fan**, 添加集成
 5. 在集成配置中，选择自动搜索到的设备
-
-## 依赖
-
-- Home Assistant 蓝牙集成（`bluetooth`）
-- [bleak](https://github.com/hbldh/bleak) >= 0.20.0
-
-## 通信协议
-
-集成通过 BLE GATT 与风扇通信：
-
-| 参数 | UUID |
-|------|------|
-| Service | `0000FFB0-0000-1000-8000-00805F9B34FB` |
-| Write Characteristic | `0000FFB1-0000-1000-8000-00805F9B34FB` |
-| Notify Characteristic | `0000FFB2-0000-1000-8000-00805F9B34FB` |
-
 
 ## 许可证
 
