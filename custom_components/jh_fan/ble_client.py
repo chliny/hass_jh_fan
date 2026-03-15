@@ -1,5 +1,4 @@
 """BLE client for JH Voice Fan."""
-
 from __future__ import annotations
 
 import asyncio
@@ -7,9 +6,13 @@ import logging
 from typing import Any
 
 from bleak import BleakClient
-from bleak.exc import BleakError
 from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import (
+    BleakClientWithServiceCache,
+    establish_connection,
+    retry_bluetooth_connection_error,
+)
 
 from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
@@ -19,7 +22,6 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CMD_STATUS_REPORT,
     COMMAND_DELAY,
-    CONNECTION_TIMEOUT,
     DEFAULT_ATTEMPTS,
     DP_GET_ALL,
     DP_LEVEL,
@@ -36,8 +38,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-RECONNECT_DELAY = 2.0
-
 
 def checksum(data: list[int]) -> int:
     return sum(data) % 256
@@ -50,13 +50,12 @@ class JHFanBLE:
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._seq = 1
-        self._connected = False
         self._status_event = asyncio.Event()
         self._last_status: dict[str, Any] | None = None
 
     @property
     def connected(self) -> bool:
-        return self._connected
+        return self._client is not None and self._client.is_connected
 
     def _next_seq(self) -> int:
         seq: int = self._seq
@@ -108,7 +107,7 @@ class JHFanBLE:
         _LOGGER.debug("Parsed status: %s", status)
         return status
 
-    async def _notification_handler(
+    def _notification_handler(
         self, _sender: BleakGATTCharacteristic, data: bytearray
     ) -> None:
         data_bytes = bytes(data)
@@ -119,99 +118,81 @@ class JHFanBLE:
             self._last_status = status
             self._status_event.set()
 
-    async def _get_ble_device(self) -> BLEDevice | None:
+    def _get_ble_device(self) -> BLEDevice | None:
         """获取 BLE 设备对象。"""
         if self._hass:
             return async_ble_device_from_address(self._hass, self._address)
         return None
 
-    async def connect(self) -> bool:
-        async with self._lock:
-            try:
-                if not self._client:
-                    # 尝试获取最新的 BLE 设备
-                    ble_device = await self._get_ble_device()
+    async def _establish_connection(self) -> BleakClient:
+        """使用 bleak-retry-connector 建立连接。"""
+        ble_device = self._get_ble_device()
+        if ble_device is None:
+            raise ConnectionError(f"BLE device not found: {self._address}")
 
-                    if ble_device:
-                        _LOGGER.debug("Found BLE device: %s", ble_device)
-                        self._client = BleakClient(ble_device, timeout=CONNECTION_TIMEOUT)
-                    else:
-                        _LOGGER.debug("BLE device not found, creating client with address: %s", self._address)
-                        self._client = BleakClient(
-                            self._address, timeout=CONNECTION_TIMEOUT
-                        )
-                await self._client.connect()
-                await self._client.start_notify(
-                    NOTIFY_CHAR_UUID, self._notification_handler
-                )
-                self._connected = True
-                _LOGGER.info("Connected to JH Fan: %s", self._address)
-                return True
-            except BleakError as err:
-                _LOGGER.error("Failed to connect to JH Fan: %s", err)
-                self._connected = False
-                return False
+        async with self._lock:
+            # 双重检查，避免重复连接
+            if self._client is not None and self._client.is_connected:
+                return self._client
+
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
+                ble_device,
+                f"JH Fan {self._address}",
+                disconnected_callback=self._on_disconnect,
+            )
+
+            # 启动通知
+            await self._client.start_notify(
+                NOTIFY_CHAR_UUID, self._notification_handler
+            )
+
+            _LOGGER.info("Connected to JH Fan: %s", self._address)
+            return self._client
+
+    def _on_disconnect(self, client: BleakClient) -> None:
+        """断开连接回调。"""
+        _LOGGER.debug("JH Fan disconnected: %s", self._address)
+        self._client = None
 
     async def disconnect(self) -> None:
-        """断开连接并停止重连任务。"""
+        """断开连接。"""
         async with self._lock:
             if self._client and self._client.is_connected:
                 try:
                     await self._client.stop_notify(NOTIFY_CHAR_UUID)
                     await self._client.disconnect()
-                except BleakError as err:
+                except Exception as err:
                     _LOGGER.warning("Error disconnecting: %s", err)
-            self._connected = False
             self._client = None
 
-    async def _ensure_connected(self) -> bool:
-        """确保连接状态，必要时重连。"""
-        if self._client and self._client.is_connected and self._connected:
-            _LOGGER.debug("Connection is healthy")
-            return True
+    @retry_bluetooth_connection_error(attempts=DEFAULT_ATTEMPTS)
+    async def _send_command_with_retry(self, frame: bytes) -> bool:
+        """发送命令（带重试）。"""
+        # 确保连接（内部有加锁）
+        if not self.connected or self._client is None:
+            await self._establish_connection()
 
-        _LOGGER.warning("Connection lost, attempting to reconnect...")
-        self._connected = False
+        assert self._client is not None
+        await self._client.write_gatt_char(
+            WRITE_CHAR_UUID, frame, response=False
+        )
+        await asyncio.sleep(COMMAND_DELAY)
+        return True
 
-        # 尝试重新连接
-        return await self.connect()
-
-    async def send_command(
-        self, dp_id: int, value: int, attempts: int = DEFAULT_ATTEMPTS
-    ) -> bool:
+    async def send_command(self, dp_id: int, value: int) -> bool:
         frame = self._build_frame(dp_id, value)
         _LOGGER.debug(
             "Sending command: dp=%d, value=%d, frame=%s", dp_id, value, frame.hex()
         )
 
-        for attempt in range(attempts):
-            try:
-                # 检查连接状态，必要时重连
-                if not await self._ensure_connected():
-                    _LOGGER.warning(
-                        "Connection failed (attempt %d/%d)", attempt + 1, attempts
-                    )
-                    await asyncio.sleep(RECONNECT_DELAY)
-                    continue
-                assert self._client is not None
-                await self._client.write_gatt_char(
-                    WRITE_CHAR_UUID, frame, response=False
-                )
-                await asyncio.sleep(COMMAND_DELAY)
-                return True
-            except BleakError as err:
-                _LOGGER.warning(
-                    "Command failed (attempt %d/%d): %s", attempt + 1, attempts, err
-                )
-                # 标记断开并触发重连
-                self._connected = False
-            except Exception as err:
-                _LOGGER.error(
-                    "Unexpected error (attempt %d/%d): %s", attempt + 1, attempts, err
-                )
-                self._connected = False
-
-        return False
+        try:
+            return await self._send_command_with_retry(frame)
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to send command after retries: %s", err
+            )
+            return False
 
     async def get_status(self, timeout: float = 5.0) -> dict[str, Any] | None:
         """获取设备所有状态。
@@ -240,12 +221,15 @@ class JHFanBLE:
         return await self.send_command(DP_SWITCH, 0)
 
     async def set_speed(self, speed: int) -> bool:
+        """设置风速。"""
         return await self.send_command(DP_LEVEL, speed)
 
     async def set_oscillate_lr(self, oscillate: bool) -> bool:
+        """设置左右摇头开关。"""
         return await self.send_command(DP_LR_OSCILLATE, 1 if oscillate else 0)
 
     async def set_oscillate_ud(self, oscillate: bool) -> bool:
+        """设置上下摇头开关。"""
         return await self.send_command(DP_UD_OSCILLATE, 1 if oscillate else 0)
 
     async def set_voice_announce(self, enable: bool) -> bool:
