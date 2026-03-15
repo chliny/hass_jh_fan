@@ -215,21 +215,47 @@ class JHFanBLE:
             return None
 
     async def turn_on(self) -> bool:
+        """打开设备。"""
         return await self.send_command(DP_SWITCH, 1)
 
     async def turn_off(self) -> bool:
+        """关闭设备。"""
         return await self.send_command(DP_SWITCH, 0)
+
+    async def _ensure_power_on(self) -> bool:
+        """确保设备已打开，未打开则先打开。"""
+        # 检查缓存的状态
+        if self._last_status is not None and self._last_status.get("power"):
+            return True
+
+        # 获取当前状态
+        status = await self.get_status()
+        if status is None:
+            _LOGGER.warning("Failed to get status, assuming device is off")
+            return await self.turn_on()
+
+        if not status.get("power"):
+            _LOGGER.info("Device is off, turning on first")
+            return await self.turn_on()
+
+        return True
 
     async def set_speed(self, speed: int) -> bool:
         """设置风速。"""
+        if not await self._ensure_power_on():
+            return False
         return await self.send_command(DP_LEVEL, speed)
 
     async def set_oscillate_lr(self, oscillate: bool) -> bool:
         """设置左右摇头开关。"""
+        if oscillate and not await self._ensure_power_on():
+            return False
         return await self.send_command(DP_LR_OSCILLATE, 1 if oscillate else 0)
 
     async def set_oscillate_ud(self, oscillate: bool) -> bool:
         """设置上下摇头开关。"""
+        if oscillate and not await self._ensure_power_on():
+            return False
         return await self.send_command(DP_UD_OSCILLATE, 1 if oscillate else 0)
 
     async def set_voice_announce(self, enable: bool) -> bool:
@@ -238,4 +264,6 @@ class JHFanBLE:
 
     async def set_timing_off(self, hours: int) -> bool:
         """设置定时关机时间（小时）。"""
+        if hours > 0 and not await self._ensure_power_on():
+            return False
         return await self.send_command(DP_TIMING_OFF, hours)
